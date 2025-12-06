@@ -1,14 +1,29 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
 )
+
+type GeminiResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"content"`
+	} `json:"candidates"`
+}
 
 func main() {
 	err := godotenv.Load(`server/.env`)
@@ -18,6 +33,16 @@ func main() {
 	}
 
 	token := os.Getenv("BOT_TOKEN")
+	if token == "" {
+		log.Println("empty bot token")
+	}
+
+	apiKey := os.Getenv("GEM_API")
+	if apiKey == "" {
+		log.Println("empty api key")
+	}
+
+	url := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + apiKey
 
 	sess, err := discordgo.New("Bot " + token)
 
@@ -31,8 +56,58 @@ func main() {
 			return
 		}
 
+		// status ------------------------------------------------------------------------------------------------------------
 		if m.Content == "!status" {
 			s.ChannelMessageSend(m.ChannelID, "Bot is live and running!")
+		}
+
+		// search -----------------------------------------------------------------------------------------------------------
+		if strings.HasPrefix(m.Content, "!search ") {
+
+			reqBody := map[string]interface{}{
+				"systemInstruction": map[string]interface{}{
+					"parts": []map[string]string{
+						{"text": "Try to answer Things in 30 words, make answers as short as possible but if answer needs to be long make it."},
+					},
+				},
+				"contents": []map[string]interface{}{
+					{
+						"parts": []map[string]string{
+							{"text": m.Content[8:]},
+						},
+					},
+				},
+			}
+
+			jsonData, err := json.Marshal(reqBody)
+			if err != nil {
+				log.Fatal("error marshaling data: " + err.Error())
+			}
+
+			// create POST request
+			req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+			if err != nil {
+				log.Fatal("error making request: " + err.Error())
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				log.Fatal("error getting response: " + err.Error())
+			}
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				log.Fatal("error reading resp body:", err)
+			}
+
+			var result GeminiResponse
+			json.Unmarshal(body, &result)
+
+			s.ChannelMessageSend(m.ChannelID, result.Candidates[0].Content.Parts[0].Text)
+
 		}
 
 	})
