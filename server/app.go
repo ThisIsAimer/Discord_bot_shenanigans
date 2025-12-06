@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -59,6 +60,7 @@ func main() {
 		// status ------------------------------------------------------------------------------------------------------------
 		if m.Content == "!status" {
 			s.ChannelMessageSend(m.ChannelID, "Bot is live and running!")
+			return
 		}
 
 		// search -----------------------------------------------------------------------------------------------------------
@@ -108,6 +110,43 @@ func main() {
 
 			s.ChannelMessageSend(m.ChannelID, result.Candidates[0].Content.Parts[0].Text)
 
+			return
+
+		}
+
+		// clear ---------------------------------------------------------------------------------------
+		if strings.HasPrefix(m.Content, "!clear ") {
+
+			lim, err := strconv.Atoi(m.Content[7:])
+			if err != nil {
+				s.ChannelMessageSend(m.ChannelID, "invalid clear number")
+				return
+			}
+
+			err = deleteLastMessages(s, m.ChannelID, lim)
+			if err != nil {
+				s.ChannelMessageSend(m.ChannelID, "error deleting messages:"+err.Error())
+				return
+			}
+
+			s.ChannelMessageSend(m.ChannelID, "🧹 Deleted "+m.Content[7:]+" messages")
+		}
+		
+		// Har har mahadev msg embed---------------------------------------------------------------------------------------
+		if strings.ToLower(m.Content) == "har har mahadev" {
+
+			customMsg := &discordgo.MessageEmbed{
+				Title:       "Har Har Mahadev 🔱",
+				Description: "ॐ नमो भगवते महादेवाय 🙏",
+				Color:       0x6A0DAD, // purple
+				Image: &discordgo.MessageEmbedImage{
+					URL: "https://cdn.discordapp.com/attachments/1446712680030273678/1446799644393734294/god-shiva-shiva.gif?ex=69354cab&is=6933fb2b&hm=8086346b7ec3429060fbcdd6bd123cf455c342d2971a1292f1a5112be3aacceb&",
+				},
+				Footer: &discordgo.MessageEmbedFooter{
+					Text: "Great Sage",
+				},
+			}
+			s.ChannelMessageSendEmbed(m.ChannelID, customMsg)
 		}
 
 	})
@@ -132,4 +171,22 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
+}
+
+func deleteLastMessages(s *discordgo.Session, channelID string, count int) error {
+
+	// Fetch up to 100 messages
+	messages, err := s.ChannelMessages(channelID, count, "", "", "")
+	if err != nil {
+		return err
+	}
+
+	var ids []string
+	for _, msg := range messages {
+		ids = append(ids, msg.ID)
+	}
+
+	// Bulk delete
+	err = s.ChannelMessagesBulkDelete(channelID, ids)
+	return err
 }
