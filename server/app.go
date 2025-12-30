@@ -21,10 +21,9 @@ func main() {
 	// }
 
 	token := os.Getenv("BOT_TOKEN")
-	guildID := os.Getenv("GUILD_ID")
 
-	if token == "" || guildID == "" {
-		log.Fatal("BOT_TOKEN or GUILD_ID missing")
+	if token == "" {
+		log.Fatal("BOT_TOKEN is missing")
 	}
 
 	dg, err := discordgo.New("Bot " + token)
@@ -35,15 +34,13 @@ func main() {
 	// Intents (voice states required)
 	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildVoiceStates
 
+	dg.AddHandler(onGuildCreate)
 	dg.AddHandler(onInteractionCreate)
 
 	err = dg.Open()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	functions.DeleteAllCommands(dg, guildID)
-	functions.RegisterCommands(dg, guildID)
 
 	log.Println("✅ Bot is running")
 
@@ -106,4 +103,18 @@ func onInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	case "moveall":
 		functions.HandleMoveAll(s, i)
 	}
+}
+
+// for guild ------------------------------------------
+
+func onGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
+	if g.Guild == nil {
+		return
+	}
+
+	log.Printf("📌 Syncing commands for guild: %s (%s)", g.Name, g.ID)
+
+	functions.DeleteGlobalCommands(s)
+	functions.DeleteAllCommands(s, g.ID)
+	functions.RegisterCommands(s, g.ID)
 }

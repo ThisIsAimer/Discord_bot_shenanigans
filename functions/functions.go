@@ -59,6 +59,19 @@ var commands = []*discordgo.ApplicationCommand{
 		},
 	},
 }
+// delete global cmds
+func DeleteGlobalCommands(s *discordgo.Session) {
+	cmds, err := s.ApplicationCommands(s.State.User.ID, "")
+	if err != nil {
+		log.Println("Failed to fetch global commands:", err)
+		return
+	}
+
+	for _, c := range cmds {
+		log.Println("🗑 Deleting GLOBAL command:", c.Name)
+		_ = s.ApplicationCommandDelete(s.State.User.ID, "", c.ID)
+	}
+}
 
 // ---------------- COMMAND ddeletion ----------------
 func DeleteAllCommands(s *discordgo.Session, guildID string) {
