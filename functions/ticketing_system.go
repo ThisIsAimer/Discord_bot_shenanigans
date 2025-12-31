@@ -477,7 +477,12 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	msgs, err := fetchAllMessages(s, i.ChannelID)
-	transcript := buildTranscript(msgs)
+	if err != nil {
+		log.Println("failed to fetch messages:", err)
+		return
+	}
+
+	embed := buildTranscriptEmbed(msgs)
 
 	ch, err := s.State.Channel(i.ChannelID)
 	if err != nil {
@@ -490,10 +495,17 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	channelName := ch.Name
 
-	s.ChannelMessageSend(
+	_, err = s.ChannelMessageSendComplex(
 		LOG_CHANNEL_ID,
-		fmt.Sprintf("📄 Transcript for <#%s>:\n```%s```", channelName, transcript),
+		&discordgo.MessageSend{
+			Content: fmt.Sprintf("📄 **Transcript for <#%s>**", channelName),
+			Embeds:  []*discordgo.MessageEmbed{embed},
+		},
 	)
+
+	if err != nil {
+		log.Println("failed to send transcript embed:", err)
+	}
 
 	// ✅ Delete channel
 	_, err = s.ChannelDelete(i.ChannelID)
@@ -557,13 +569,14 @@ func fetchAllMessages(s *discordgo.Session, channelID string) ([]*discordgo.Mess
 	return all, nil
 }
 
-func buildTranscript(msgs []*discordgo.Message) string {
-	var b strings.Builder
-
+func buildTranscriptEmbed(msgs []*discordgo.Message) *discordgo.MessageEmbed {
 	ist, err := time.LoadLocation("Asia/Kolkata")
 	if err != nil {
-		ist = time.FixedZone("IST", 5*60*60+30*60) // fallback
+		ist = time.FixedZone("IST", 5*60*60+30*60)
 	}
+
+	var desc strings.Builder
+	var firstImage string
 
 	for _, m := range msgs {
 		if m.Author.Bot {
@@ -571,40 +584,57 @@ func buildTranscript(msgs []*discordgo.Message) string {
 		}
 
 		t := m.Timestamp.In(ist)
+		timeStr := t.Format("2006-01-02 15:04")
 
-		// text content
+		// message header
+		desc.WriteString(fmt.Sprintf(
+			"### %s — %s\n",
+			m.Author.Username,
+			timeStr,
+		))
+
+		// message text (in order)
 		if m.Content != "" {
-			b.WriteString(fmt.Sprintf(
-				"[%s] %s: %s\n",
-				t.Format("2006-01-02 15:04"),
-				m.Author.Username,
-				m.Content,
-			))
+			desc.WriteString(m.Content + "\n")
 		}
 
-		// attachments (images/files)
+		// attachments immediately after message
 		for _, a := range m.Attachments {
-			b.WriteString(fmt.Sprintf(
-				"[%s] 📎 Attachment: %s (%s)\n    %s\n",
-				t.Format("2006-01-02 15:04"),
+			desc.WriteString(fmt.Sprintf(
+				"📎 **Attachment:** [%s](%s)\n",
 				a.Filename,
-				a.ContentType,
 				a.URL,
 			))
-		}
 
-		// embeds with images (optional)
-		for _, e := range m.Embeds {
-			if e.Image != nil {
-				b.WriteString(fmt.Sprintf(
-					"    🖼️ Embedded Image:\n    %s\n",
-					e.Image.URL,
-				))
+			// capture first image for embed preview
+			if firstImage == "" &&
+				a.ContentType != "" &&
+				strings.HasPrefix(a.ContentType, "image/") {
+				firstImage = a.URL
 			}
 		}
 
-		b.WriteString("\n")
+		desc.WriteString("\n---\n\n")
+
+		// hard stop before Discord limit
+		if desc.Len() >= 3900 {
+			desc.WriteString("⚠️ Transcript truncated due to Discord embed limits.")
+			break
+		}
 	}
 
-	return b.String()
+	embed := &discordgo.MessageEmbed{
+		Title:       "📄 Ticket Transcript",
+		Description: desc.String(),
+		Color:       0x5865F2,
+		Timestamp:   time.Now().Format(time.RFC3339),
+	}
+
+	if firstImage != "" {
+		embed.Image = &discordgo.MessageEmbedImage{
+			URL: firstImage,
+		}
+	}
+
+	return embed
 }
