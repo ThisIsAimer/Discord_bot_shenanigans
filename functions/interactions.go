@@ -127,10 +127,13 @@ func OnInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			closeTicket(s, i)
 
 		case "ticket_reopen":
-			openTicket(s, i)
+			reOpenTicket(s, i)
 
 		case "ticket_delete":
-			ticket_delete(s, i)
+			warnTicketDelete(s, i)
+
+		case "ticket_confirm_delete":
+			ticketConfirmDelete(s, i)
 		}
 
 	default:

@@ -7,13 +7,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-const TICKET_ADMIN_ROLE_ID = "1263838143178870815"
-const LOG_CHANNEL_ID = "1455857046028025917"
+var TICKET_ADMIN_ROLE_ID string
+var TICKET_ROLE_ID string
+var LOG_CHANNEL_ID string
 
 var ticket_number = 1
 var mu sync.Mutex
@@ -35,7 +35,8 @@ func ticketCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 					},
 
 					Footer: &discordgo.MessageEmbedFooter{
-						Text: "🕉️ Sanatani Sena Ticket Panel",
+						IconURL: "https://cdn.discordapp.com/attachments/1455598749123346616/1455918006801535088/Sananatani_Sena_Logo_2.png?ex=695678ce&is=6955274e&hm=c238f2f2418b26f60e6ae90dd8673a79751492ae4b1d0295bebdb1180ecc0082&",
+						Text: "Sanatani Sena Ticket Panel",
 					},
 				},
 			},
@@ -110,6 +111,15 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
+	err = s.GuildMemberRoleAdd(
+		i.GuildID,
+		i.Member.User.ID,
+		TICKET_ROLE_ID,
+	)
+	if err != nil {
+		log.Println("failed to add ticket role:", err)
+	}
+
 	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -138,7 +148,8 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				},
 
 				Footer: &discordgo.MessageEmbedFooter{
-					Text: "🕉️ सनातनी सेना",
+					IconURL: "https://cdn.discordapp.com/attachments/1455598749123346616/1455918006801535088/Sananatani_Sena_Logo_2.png?ex=695678ce&is=6955274e&hm=c238f2f2418b26f60e6ae90dd8673a79751492ae4b1d0295bebdb1180ecc0082&",
+					Text: "सनातनी सेना",
 				},
 			},
 		},
@@ -227,6 +238,23 @@ func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Println("rename failed:", err)
 	}
 
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Embeds: []*discordgo.MessageEmbed{
+			{
+				Description: fmt.Sprintf(
+					"🙌 %s, **you claimed the ticket successfully!**\n\n"+
+						"📁 The ticket has been moved to **Help/Complaint** category.",
+					i.Member.User.Mention(),
+				),
+				Color: 0x57F287,
+			},
+		},
+		Flags: discordgo.MessageFlagsEphemeral,
+	})
+	if err != nil {
+		log.Println("followup failed:", err)
+	}
+
 }
 
 func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -275,6 +303,15 @@ func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Println("perm close failed:", err)
 	}
 
+	err = s.GuildMemberRoleRemove(
+		i.GuildID,
+		ownerID,
+		TICKET_ROLE_ID,
+	)
+	if err != nil {
+		log.Println("failed to remove ticket role:", err)
+	}
+
 	// ✅ 3. update buttons (close disabled, reopen enabled)
 	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
 		Components: ticketButtons(false),
@@ -284,7 +321,7 @@ func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
-func openTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func reOpenTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	ownerID, ok := ticketOwner[i.ChannelID]
 	if !ok {
 		noPerm(s, i)
@@ -328,6 +365,16 @@ func openTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		0,
 	)
 
+	err = s.GuildMemberRoleAdd(
+		i.GuildID,
+		i.Member.User.ID,
+		TICKET_ROLE_ID,
+	)
+
+	if err != nil {
+		log.Println("failed to add ticket role:", err)
+	}
+
 	if err != nil {
 		log.Println("perm close failed:", err)
 	}
@@ -338,7 +385,45 @@ func openTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	})
 }
 
-func ticket_delete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func warnTicketDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Description: fmt.Sprintf(
+						"👋 %s, **are you sure you want to delete this ticket?**\n\n"+
+							"⚠️ The channel will be **deleted** and a **transcript will be generated**.",
+						i.Member.User.Mention(),
+					),
+					Color: 0xED4245, // Red (danger)
+				},
+			},
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Confirm",
+							Style:    discordgo.DangerButton,
+							CustomID: "ticket_confirm_delete",
+							Emoji:    &discordgo.ComponentEmoji{Name: "🗑️"},
+						},
+					},
+				},
+			},
+			Flags: discordgo.MessageFlagsEphemeral,
+		},
+	})
+}
+
+func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	ownerID, ok := ticketOwner[i.ChannelID]
+	if !ok {
+		noPerm(s, i)
+		return
+	}
+
 	member := i.Member
 	if member == nil {
 		noPerm(s, i)
@@ -373,6 +458,15 @@ func ticket_delete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		fmt.Sprintf("🗑️ **Ticket deleted by <@%s>**", member.User.ID),
 	)
 
+	err := s.GuildMemberRoleRemove(
+		i.GuildID,
+		ownerID,
+		TICKET_ROLE_ID,
+	)
+	if err != nil {
+		log.Println("failed to remove ticket role:", err)
+	}
+
 	msgs, err := fetchAllMessages(s, i.ChannelID)
 	transcript := buildTranscript(msgs)
 
@@ -392,14 +486,14 @@ func ticket_delete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		fmt.Sprintf("📄 Transcript for <#%s>:\n```%s```", channelName, transcript),
 	)
 
-	// Optional delay (gives time to read message)
-	time.Sleep(3 * time.Second)
-
 	// ✅ Delete channel
 	_, err = s.ChannelDelete(i.ChannelID)
 	if err != nil {
 		log.Println("failed to delete channel:", err)
 	}
+
+	delete(ticketOwner, i.ChannelID)
+
 }
 
 // util functions ------------------------------------------------------------------------------------------------------------------------
@@ -415,12 +509,12 @@ func canClaim(i *discordgo.InteractionCreate, supportRoleID string) bool {
 		return false
 	}
 
-	// 1️⃣ Admins can always claim
+	// 1 Admins can always claim
 	if i.Member.Permissions&discordgo.PermissionAdministrator != 0 {
 		return true
 	}
 
-	// 2️⃣ Members with support role can claim
+	// 2 Members with support role can claim
 	for _, roleID := range i.Member.Roles {
 		if roleID == supportRoleID {
 			return true
@@ -475,7 +569,8 @@ func buildTranscript(msgs []*discordgo.Message) string {
 		// attachments (images/files)
 		for _, a := range m.Attachments {
 			b.WriteString(fmt.Sprintf(
-				"    📎 Attachment: %s (%s)\n    %s\n",
+				"[%s] 📎 Attachment: %s (%s)\n    %s\n",
+				m.Timestamp.Format("2006-01-02 15:04"),
 				a.Filename,
 				a.ContentType,
 				a.URL,

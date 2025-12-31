@@ -20,6 +20,11 @@ func main() {
 		return
 	}
 
+	functions.TICKET_ADMIN_ROLE_ID = os.Getenv("TICKET_ADMIN_ROLE_ID")
+	functions.TICKET_ROLE_ID= os.Getenv("TICKET_ROLE_ID")
+	functions.LOG_CHANNEL_ID = os.Getenv("LOG_CHANNEL_ID")
+
+
 	log.SetOutput(os.Stdout)
 
 	token := os.Getenv("BOT_TOKEN")
