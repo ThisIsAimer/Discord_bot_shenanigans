@@ -12,55 +12,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func ptr[T any](v T) *T {
-	return &v
-}
-
-func itoa(i int) string {
-	return fmt.Sprintf("%d", i)
-}
-
-var commands = []*discordgo.ApplicationCommand{
-	{
-		Name:        "ping",
-		Description: "Check bot latency",
-	},
-	{
-		Name:        "search",
-		Description: "Searches stuff",
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Name:        "query",
-				Description: "What do you want to search?",
-				Type:        discordgo.ApplicationCommandOptionString,
-				Required:    true,
-			},
-		},
-	},
-	{
-		Name:                     "moveall",
-		Description:              "Move users from one VC to another",
-		DefaultMemberPermissions: ptr(int64(discordgo.PermissionVoiceMoveMembers)),
-		Options: []*discordgo.ApplicationCommandOption{
-			{
-				Name:         "from",
-				Description:  "Source voice channel",
-				Type:         discordgo.ApplicationCommandOptionChannel,
-				Required:     true,
-				Autocomplete: true,
-			},
-			{
-				Name:         "to",
-				Description:  "Target voice channel",
-				Type:         discordgo.ApplicationCommandOptionChannel,
-				Required:     true,
-				Autocomplete: true,
-			},
-		},
-	},
-}
 // delete global cmds
-func DeleteGlobalCommands(s *discordgo.Session) {
+func deleteGlobalCommands(s *discordgo.Session) {
 	cmds, err := s.ApplicationCommands(s.State.User.ID, "")
 	if err != nil {
 		log.Println("Failed to fetch global commands:", err)
@@ -74,7 +27,7 @@ func DeleteGlobalCommands(s *discordgo.Session) {
 }
 
 // ---------------- COMMAND ddeletion ----------------
-func DeleteAllCommands(s *discordgo.Session, guildID string) {
+func deleteAllCommands(s *discordgo.Session, guildID string) {
 
 	// Delete GUILD commands
 	guildCmds, _ := s.ApplicationCommands(s.State.User.ID, guildID)
@@ -89,7 +42,7 @@ func DeleteAllCommands(s *discordgo.Session, guildID string) {
 
 // ---------------- COMMAND REGISTRATION ----------------
 
-func RegisterCommands(s *discordgo.Session, guildid string) {
+func registerCommands(s *discordgo.Session, guildid string) {
 	for _, cmd := range commands {
 		_, err := s.ApplicationCommandCreate(
 			s.State.User.ID,
@@ -106,7 +59,7 @@ func RegisterCommands(s *discordgo.Session, guildid string) {
 
 // ---------------- AUTOCOMPLETE ----------------
 
-func HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	guild, err := s.State.Guild(i.GuildID)
 	if err != nil {
@@ -137,7 +90,7 @@ func HandleAutocomplete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // ---------------- MOVE LOGIC ----------------
 
-func HandleMoveAll(s *discordgo.Session, i *discordgo.InteractionCreate) {
+func handleMoveAll(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	opts := i.ApplicationCommandData().Options
 
@@ -170,7 +123,7 @@ func HandleMoveAll(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 // call ai -----------------------------------------------
 
-func CallAI(query string) (string, error) {
+func callAI(query string) (string, error) {
 	url := "https://api.groq.com/openai/v1/chat/completions"
 
 	// JSON payload for Groq

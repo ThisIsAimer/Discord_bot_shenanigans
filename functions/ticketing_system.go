@@ -1,0 +1,499 @@
+package functions
+
+import (
+	"fmt"
+	"log"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bwmarrin/discordgo"
+)
+
+const TICKET_ADMIN_ROLE_ID = "1263838143178870815"
+const LOG_CHANNEL_ID = "1455857046028025917"
+
+var ticket_number = 1
+var mu sync.Mutex
+
+func ticketCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Embeds: []*discordgo.MessageEmbed{
+				{
+					Title:       "🎟️ Help/Complaint Ticket",
+					Description: `Hey member create your help/complaint ticket by just clicking on the button below "📩 Create a Ticket".`,
+					Color:       0x5865F2, // Discord blurple
+					Fields: []*discordgo.MessageEmbedField{
+						{
+							Name:  "📌 NOTE:",
+							Value: "• Tag <@&" + TICKET_ADMIN_ROLE_ID + "> in your ticket channel for further process.\n• Do not tag mods more than once.",
+						},
+					},
+
+					Footer: &discordgo.MessageEmbedFooter{
+						Text: "🕉️ Sanatani Sena Ticket Panel",
+					},
+				},
+			},
+			Components: []discordgo.MessageComponent{
+				discordgo.ActionsRow{
+					Components: []discordgo.MessageComponent{
+						discordgo.Button{
+							Label:    "Create a Ticket",
+							Style:    discordgo.SuccessButton,
+							CustomID: "ticket_create",
+							Emoji: &discordgo.ComponentEmoji{
+								Name: "📩",
+							},
+						},
+					},
+				},
+			},
+		},
+	})
+}
+
+func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	guildID := i.GuildID
+	user := i.Member.User
+
+	username := sanitize(user.Username)
+
+	channel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
+		Name: "ticket-" + strconv.Itoa(ticket_number) + "-" + username,
+		Type: discordgo.ChannelTypeGuildText,
+		// ParentID: "", catagory id
+		PermissionOverwrites: []*discordgo.PermissionOverwrite{
+			{
+				ID:   guildID,
+				Type: discordgo.PermissionOverwriteTypeRole,
+				Deny: discordgo.PermissionViewChannel,
+			},
+			{
+				ID:   user.ID,
+				Type: discordgo.PermissionOverwriteTypeMember,
+				Allow: discordgo.PermissionViewChannel |
+					discordgo.PermissionSendMessages |
+					discordgo.PermissionReadMessageHistory,
+			},
+			{
+				ID:   s.State.User.ID, // Bot's user ID
+				Type: discordgo.PermissionOverwriteTypeMember,
+				Allow: discordgo.PermissionViewChannel |
+					discordgo.PermissionSendMessages |
+					discordgo.PermissionReadMessageHistory,
+			},
+			// {
+			// 	ID:   modRoleID, // Moderator role ID
+			// 	Type: discordgo.PermissionOverwriteTypeRole,
+			// 	Allow: discordgo.PermissionViewChannel |
+			// 		discordgo.PermissionSendMessages |
+			// 		discordgo.PermissionReadMessageHistory,
+			// },
+		},
+	})
+
+	ticket_number++
+
+	ticketOwner[channel.ID] = i.Member.User.ID
+
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "✅ Ticket created: <#" + channel.ID + ">",
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+
+	_, err = s.ChannelMessageSend(channel.ID,
+		fmt.Sprintf("💜 **<@%s> Your complaint ticket has been created**", user.ID),
+	)
+	if err != nil {
+		log.Println("failed to send close message:", err)
+	}
+
+	// Welcome message in ticket
+	s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
+		Embeds: []*discordgo.MessageEmbed{
+			{
+				Title:       "Welcome " + user.Username + "!",
+				Description: "Please describe the reasoning for opening this ticket, include any information you think may be relevant such as proof, other third parties and so on.\n\n• Tag <@&" + TICKET_ADMIN_ROLE_ID + "> to look at your complaint.",
+				Color:       0xED4245, // red accent
+
+				Image: &discordgo.MessageEmbedImage{
+					URL: "https://cdn-longterm.mee6.xyz/plugins/embeds/images/1192481727185158144/fd936bf0632d64f1d7cb4b63aa83bd9b77cc2f491b587698373cd675c00b96a0.png", // upload image somewhere & paste link
+				},
+
+				Footer: &discordgo.MessageEmbedFooter{
+					Text: "🕉️ सनातनी सेना",
+				},
+			},
+		},
+		Components: *ticketButtons(true),
+	})
+
+}
+
+func ticketButtons(open bool) *[]discordgo.MessageComponent {
+	return &[]discordgo.MessageComponent{
+		discordgo.ActionsRow{
+			Components: []discordgo.MessageComponent{
+				discordgo.Button{
+					Label:    "Claim",
+					Style:    discordgo.PrimaryButton,
+					CustomID: "ticket_claim",
+					Emoji:    &discordgo.ComponentEmoji{Name: "🎟️"},
+					Disabled: !open,
+				},
+				discordgo.Button{
+					Label:    "Close",
+					Style:    discordgo.SecondaryButton,
+					CustomID: "ticket_close",
+					Emoji:    &discordgo.ComponentEmoji{Name: "🔒"},
+					Disabled: !open, // ✅ enabled initially
+				},
+				discordgo.Button{
+					Label:    "Reopen",
+					Style:    discordgo.SuccessButton,
+					CustomID: "ticket_reopen",
+					Emoji:    &discordgo.ComponentEmoji{Name: "🔓"},
+					Disabled: open, // ❌ disabled initially
+				},
+				discordgo.Button{
+					Label:    "Delete",
+					Style:    discordgo.DangerButton,
+					CustomID: "ticket_delete",
+					Emoji:    &discordgo.ComponentEmoji{Name: "🗑️"},
+				},
+			},
+		},
+	}
+}
+
+func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+	if !canClaim(i, TICKET_ADMIN_ROLE_ID) {
+		noPerm(s, i)
+		return
+	}
+
+	ch, err := s.State.Channel(i.ChannelID)
+	if err != nil {
+		noPerm(s, i)
+		return
+	}
+
+	if strings.Contains(ch.Name, "-claimed-") {
+		s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+			Type: discordgo.InteractionResponseChannelMessageWithSource,
+			Data: &discordgo.InteractionResponseData{
+				Content: "❌ This ticket has already been claimed.",
+				Flags:   discordgo.MessageFlagsEphemeral,
+			},
+		})
+		return
+	}
+
+	// ✅ ACK FIRST (this is critical)
+	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+	if err != nil {
+		log.Println("ack failed:", err)
+		return
+	}
+
+	// 🔁 now it is SAFE to do slow operations
+	claimer := sanitize(i.Member.User.Username)
+	newName := ch.Name + "-claimed-" + claimer
+
+	_, err = s.ChannelEdit(i.ChannelID, &discordgo.ChannelEdit{
+		Name: newName,
+	})
+	if err != nil {
+		log.Println("rename failed:", err)
+	}
+
+}
+
+func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	ownerID, ok := ticketOwner[i.ChannelID]
+	if !ok {
+		noPerm(s, i)
+		return
+	}
+
+	userID := i.Member.User.ID
+	isMod := i.Member.Permissions&discordgo.PermissionModerateMembers != 0
+	isOwner := userID == ownerID
+
+	// only mods OR owner can close
+	if !isMod && !isOwner {
+		noPerm(s, i)
+		return
+	}
+
+	// ✅ 1. ACK the interaction FIRST
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+	if err != nil {
+		log.Println("interaction ack failed:", err)
+		return
+	}
+
+	_, err = s.ChannelMessageSend(i.ChannelID,
+		fmt.Sprintf("🔒 **Ticket closed by <@%s>**", userID),
+	)
+	if err != nil {
+		log.Println("failed to send close message:", err)
+	}
+
+	// ✅ 2. lock user from typing
+	err = s.ChannelPermissionSet(
+		i.ChannelID,
+		ownerID,
+		discordgo.PermissionOverwriteTypeMember,
+		discordgo.PermissionViewChannel|
+			discordgo.PermissionReadMessageHistory,
+		discordgo.PermissionSendMessages,
+	)
+	if err != nil {
+		log.Println("perm close failed:", err)
+	}
+
+	// ✅ 3. update buttons (close disabled, reopen enabled)
+	_, err = s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Components: ticketButtons(false),
+	})
+	if err != nil {
+		log.Println("edit failed:", err)
+	}
+}
+
+func openTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	ownerID, ok := ticketOwner[i.ChannelID]
+	if !ok {
+		noPerm(s, i)
+		return
+	}
+
+	userID := i.Member.User.ID
+	isMod := i.Member.Permissions&discordgo.PermissionModerateMembers != 0
+	isOwner := userID == ownerID
+
+	if !isMod && !isOwner {
+		noPerm(s, i)
+		return
+	}
+
+	// ✅ ACK first
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+
+	if err != nil {
+		log.Println("interaction ack failed:", err)
+		return
+	}
+
+	_, err = s.ChannelMessageSend(i.ChannelID,
+		fmt.Sprintf("🔒 **Ticket reopened by <@%s>**", userID),
+	)
+	if err != nil {
+		log.Println("failed to send close message:", err)
+	}
+
+	// ✅ allow typing again
+	err = s.ChannelPermissionSet(
+		i.ChannelID,
+		ownerID,
+		discordgo.PermissionOverwriteTypeMember,
+		discordgo.PermissionViewChannel|
+			discordgo.PermissionSendMessages|
+			discordgo.PermissionReadMessageHistory,
+		0,
+	)
+
+	if err != nil {
+		log.Println("perm close failed:", err)
+	}
+
+	// ✅ toggle buttons back
+	s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{
+		Components: ticketButtons(true),
+	})
+}
+
+func ticket_delete(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	member := i.Member
+	if member == nil {
+		noPerm(s, i)
+		return
+	}
+
+	// ✅ Check admin permission
+	isAdmin := member.Permissions&discordgo.PermissionAdministrator != 0
+
+	// ✅ Check specific role
+	hasRole := false
+	for _, roleID := range member.Roles {
+		if roleID == TICKET_ADMIN_ROLE_ID {
+			hasRole = true
+			break
+		}
+	}
+
+	if !isAdmin && !hasRole {
+		noPerm(s, i)
+		return
+	}
+
+	// ✅ ACK interaction first
+	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+
+	// Optional: system message
+	s.ChannelMessageSend(
+		i.ChannelID,
+		fmt.Sprintf("🗑️ **Ticket deleted by <@%s>**", member.User.ID),
+	)
+
+	msgs, err := fetchAllMessages(s, i.ChannelID)
+	transcript := buildTranscript(msgs)
+
+	ch, err := s.State.Channel(i.ChannelID)
+	if err != nil {
+		ch, err = s.Channel(i.ChannelID) // fallback if not cached
+		if err != nil {
+			log.Println("failed to get channel:", err)
+			return
+		}
+	}
+
+	channelName := ch.Name
+
+	s.ChannelMessageSend(
+		LOG_CHANNEL_ID,
+		fmt.Sprintf("📄 Transcript for <#%s>:\n```%s```", channelName, transcript),
+	)
+
+	// Optional delay (gives time to read message)
+	time.Sleep(3 * time.Second)
+
+	// ✅ Delete channel
+	_, err = s.ChannelDelete(i.ChannelID)
+	if err != nil {
+		log.Println("failed to delete channel:", err)
+	}
+}
+
+// util functions ------------------------------------------------------------------------------------------------------------------------
+
+func sanitize(name string) string {
+	name = strings.ToLower(name)
+	re := regexp.MustCompile(`[^a-z0-9-]`)
+	return re.ReplaceAllString(name, "")
+}
+
+func canClaim(i *discordgo.InteractionCreate, supportRoleID string) bool {
+	if i.Member == nil {
+		return false
+	}
+
+	// 1️⃣ Admins can always claim
+	if i.Member.Permissions&discordgo.PermissionAdministrator != 0 {
+		return true
+	}
+
+	// 2️⃣ Members with support role can claim
+	for _, roleID := range i.Member.Roles {
+		if roleID == supportRoleID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func fetchAllMessages(s *discordgo.Session, channelID string) ([]*discordgo.Message, error) {
+	var all []*discordgo.Message
+	var beforeID string
+
+	for {
+		msgs, err := s.ChannelMessages(channelID, 100, beforeID, "", "")
+		if err != nil {
+			return nil, err
+		}
+		if len(msgs) == 0 {
+			break
+		}
+		all = append(all, msgs...)
+		beforeID = msgs[len(msgs)-1].ID
+	}
+
+	// reverse to oldest → newest
+	for i, j := 0, len(all)-1; i < j; i, j = i+1, j-1 {
+		all[i], all[j] = all[j], all[i]
+	}
+
+	return all, nil
+}
+
+func buildTranscript(msgs []*discordgo.Message) string {
+	var b strings.Builder
+
+	for _, m := range msgs {
+		if m.Author.Bot {
+			continue
+		}
+
+		// text content
+		if m.Content != "" {
+			b.WriteString(fmt.Sprintf(
+				"[%s] %s: %s\n",
+				m.Timestamp.Format("2006-01-02 15:04"),
+				m.Author.Username,
+				m.Content,
+			))
+		}
+
+		// attachments (images/files)
+		for _, a := range m.Attachments {
+			b.WriteString(fmt.Sprintf(
+				"    📎 Attachment: %s (%s)\n    %s\n",
+				a.Filename,
+				a.ContentType,
+				a.URL,
+			))
+		}
+
+		// embeds with images (optional)
+		for _, e := range m.Embeds {
+			if e.Image != nil {
+				b.WriteString(fmt.Sprintf(
+					"    🖼️ Embedded Image:\n    %s\n",
+					e.Image.URL,
+				))
+			}
+		}
+
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
