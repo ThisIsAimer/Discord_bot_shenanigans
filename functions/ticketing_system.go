@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -37,7 +38,7 @@ func ticketCommand(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 					Footer: &discordgo.MessageEmbedFooter{
 						IconURL: "https://cdn.discordapp.com/attachments/1455598749123346616/1455918006801535088/Sananatani_Sena_Logo_2.png?ex=695678ce&is=6955274e&hm=c238f2f2418b26f60e6ae90dd8673a79751492ae4b1d0295bebdb1180ecc0082&",
-						Text: "Sanatani Sena Ticket Panel",
+						Text:    "Sanatani Sena Ticket Panel",
 					},
 				},
 			},
@@ -70,8 +71,8 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	username := sanitize(user.Username)
 
 	channel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
-		Name: "ticket-" + strconv.Itoa(ticket_number) + "-" + username,
-		Type: discordgo.ChannelTypeGuildText,
+		Name:     "ticket-" + strconv.Itoa(ticket_number) + "-" + username,
+		Type:     discordgo.ChannelTypeGuildText,
 		ParentID: CATAGORY_ID,
 		PermissionOverwrites: []*discordgo.PermissionOverwrite{
 			{
@@ -83,6 +84,7 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				ID:   user.ID,
 				Type: discordgo.PermissionOverwriteTypeMember,
 				Allow: discordgo.PermissionViewChannel |
+					discordgo.PermissionAttachFiles |
 					discordgo.PermissionSendMessages |
 					discordgo.PermissionReadMessageHistory,
 			},
@@ -150,7 +152,7 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 				Footer: &discordgo.MessageEmbedFooter{
 					IconURL: "https://cdn.discordapp.com/attachments/1455598749123346616/1455918006801535088/Sananatani_Sena_Logo_2.png?ex=695678ce&is=6955274e&hm=c238f2f2418b26f60e6ae90dd8673a79751492ae4b1d0295bebdb1180ecc0082&",
-					Text: "सनातनी सेना",
+					Text:    "सनातनी सेना",
 				},
 			},
 		},
@@ -239,6 +241,12 @@ func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Println("rename failed:", err)
 	}
 
+	_, err = s.ChannelMessageSend(i.ChannelID,
+		fmt.Sprintf("🎟️ **Ticket Has now been claimed by <@%s>**", i.Member.User.ID),
+	)
+	if err != nil {
+		log.Println("failed to send close message:", err)
+	}
 	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Embeds: []*discordgo.MessageEmbed{
 			{
@@ -552,16 +560,23 @@ func fetchAllMessages(s *discordgo.Session, channelID string) ([]*discordgo.Mess
 func buildTranscript(msgs []*discordgo.Message) string {
 	var b strings.Builder
 
+	ist, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		ist = time.FixedZone("IST", 5*60*60+30*60) // fallback
+	}
+
 	for _, m := range msgs {
 		if m.Author.Bot {
 			continue
 		}
 
+		t := m.Timestamp.In(ist)
+
 		// text content
 		if m.Content != "" {
 			b.WriteString(fmt.Sprintf(
 				"[%s] %s: %s\n",
-				m.Timestamp.Format("2006-01-02 15:04"),
+				t.Format("2006-01-02 15:04"),
 				m.Author.Username,
 				m.Content,
 			))
@@ -571,7 +586,7 @@ func buildTranscript(msgs []*discordgo.Message) string {
 		for _, a := range m.Attachments {
 			b.WriteString(fmt.Sprintf(
 				"[%s] 📎 Attachment: %s (%s)\n    %s\n",
-				m.Timestamp.Format("2006-01-02 15:04"),
+				t.Format("2006-01-02 15:04"),
 				a.Filename,
 				a.ContentType,
 				a.URL,
