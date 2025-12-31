@@ -8,17 +8,17 @@ import (
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
-	"github.com/joho/godotenv"
+	_ "github.com/joho/godotenv"
 )
 
 // ---------------- MAIN ----------------
 
 func main() {
-	err := godotenv.Load(`server/.env`)
-	if err != nil {
-		log.Println("Failed to load env")
-		return
-	}
+	// err := godotenv.Load(`server/.env`)
+	// if err != nil {
+	// 	log.Println("Failed to load env")
+	// 	return
+	// }
 
 	functions.TICKET_ADMIN_ROLE_ID = os.Getenv("TICKET_ADMIN_ROLE_ID")
 	functions.TICKET_ROLE_ID= os.Getenv("TICKET_ROLE_ID")
