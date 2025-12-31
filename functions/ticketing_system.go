@@ -14,6 +14,7 @@ import (
 var TICKET_ADMIN_ROLE_ID string
 var TICKET_ROLE_ID string
 var LOG_CHANNEL_ID string
+var CATAGORY_ID string
 
 var ticket_number = 1
 var mu sync.Mutex
@@ -71,7 +72,7 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	channel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name: "ticket-" + strconv.Itoa(ticket_number) + "-" + username,
 		Type: discordgo.ChannelTypeGuildText,
-		// ParentID: "", catagory id
+		ParentID: CATAGORY_ID,
 		PermissionOverwrites: []*discordgo.PermissionOverwrite{
 			{
 				ID:   guildID,
