@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
-	 "github.com/joho/godotenv"
+	_ "github.com/joho/godotenv"
 )
 
 // ---------------- MAIN ----------------
@@ -21,10 +21,9 @@ func main() {
 	// }
 
 	functions.TICKET_ADMIN_ROLE_ID = os.Getenv("TICKET_ADMIN_ROLE_ID")
-	functions.TICKET_ROLE_ID= os.Getenv("TICKET_ROLE_ID")
+	functions.TICKET_ROLE_ID = os.Getenv("TICKET_ROLE_ID")
 	functions.LOG_CHANNEL_ID = os.Getenv("LOG_CHANNEL_ID")
 	functions.CATAGORY_ID = os.Getenv("CATAGORY_ID")
-
 
 	log.SetOutput(os.Stdout)
 
