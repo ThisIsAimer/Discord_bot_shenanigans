@@ -42,7 +42,7 @@ var commands = []*discordgo.ApplicationCommand{
 	{
 		Name:                     "moveall",
 		Description:              "Move users from one VC to another",
-		DefaultMemberPermissions: ptr(int64(discordgo.PermissionAdministrator)),
+		DefaultMemberPermissions: ptr(int64(discordgo.PermissionKickMembers)),
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Name:         "from",
