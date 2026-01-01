@@ -28,6 +28,34 @@ var commands = []*discordgo.ApplicationCommand{
 		DefaultMemberPermissions: ptr(int64(discordgo.PermissionAdministrator)),
 	},
 	{
+		Name:                     "trash",
+		Description:              "Delete a number of messages in this channel",
+		DefaultMemberPermissions: ptr(int64(discordgo.PermissionManageMessages)),
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "amount",
+				Description: "Number of messages to delete",
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Required:    true,
+			},
+		},
+	},
+	{
+		Name:                     "trash14",
+		Description:              "Delete messages older than 14 days (slow mode)",
+		DefaultMemberPermissions: ptr(int64(discordgo.PermissionManageMessages)),
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Name:        "amount",
+				Description: "Number of old messages to delete",
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Required:    true,
+				MinValue:    ptr(1.),
+				MaxValue:    20000,
+			},
+		},
+	},
+	{
 		Name:        "search",
 		Description: "Searches stuff",
 		Options: []*discordgo.ApplicationCommandOption{
@@ -106,6 +134,12 @@ func OnInteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 				},
 			})
 
+		case "trash":
+			trashMessages(s, i)
+
+		case "trash14":
+			trash14Messages(s, i)
+
 		case "moveall":
 			handleMoveAll(s, i)
 
@@ -154,15 +188,4 @@ func OnGuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {
 	deleteGlobalCommands(s)
 	deleteAllCommands(s, g.ID)
 	registerCommands(s, g.ID)
-}
-
-// no perms message
-func noPerm(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: "⛔ You don’t have permission to do that.",
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
 }

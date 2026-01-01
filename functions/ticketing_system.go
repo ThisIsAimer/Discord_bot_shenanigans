@@ -1,16 +1,13 @@
 package functions
 
 import (
-	"bytes"
+	"dctest/guards"
+	"dctest/utils"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -72,7 +69,7 @@ func ticketCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	guildID := i.GuildID
 	user := i.Member.User
 
-	username := sanitize(user.Username)
+	username := utils.Sanitize(user.Username)
 
 	channel, err := s.GuildChannelCreateComplex(guildID, discordgo.GuildChannelCreateData{
 		Name:     "ticket-" + strconv.Itoa(ticket_number) + "-" + username,
@@ -203,14 +200,14 @@ func ticketButtons(open bool) *[]discordgo.MessageComponent {
 
 func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
-	if !canClaim(i, TICKET_ADMIN_ROLE_ID) {
-		noPerm(s, i)
+	if !guards.CanClaim(i, TICKET_ADMIN_ROLE_ID) {
+		utils.NoPerm(s, i, "")
 		return
 	}
 
 	ch, err := s.State.Channel(i.ChannelID)
 	if err != nil {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -235,7 +232,7 @@ func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	// 🔁 now it is SAFE to do slow operations
-	claimer := sanitize(i.Member.User.Username)
+	claimer := utils.Sanitize(i.Member.User.Username)
 	newName := ch.Name + "-claimed-" + claimer
 
 	_, err = s.ChannelEdit(i.ChannelID, &discordgo.ChannelEdit{
@@ -273,7 +270,7 @@ func claimTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	ownerID, ok := ticketOwner[i.ChannelID]
 	if !ok {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -283,7 +280,7 @@ func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	// only mods OR owner can close
 	if !isMod && !isOwner {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -337,7 +334,7 @@ func closeTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 func reOpenTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	ownerID, ok := ticketOwner[i.ChannelID]
 	if !ok {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -346,7 +343,7 @@ func reOpenTicket(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	isOwner := userID == ownerID
 
 	if !isMod && !isOwner {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -433,13 +430,13 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	ownerID, ok := ticketOwner[i.ChannelID]
 	if !ok {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
 	member := i.Member
 	if member == nil {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -456,7 +453,7 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	if !isAdmin && !hasRole {
-		noPerm(s, i)
+		utils.NoPerm(s, i, "")
 		return
 	}
 
@@ -480,7 +477,7 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		log.Println("failed to remove ticket role:", err)
 	}
 
-	msgs, err := fetchAllMessages(s, i.ChannelID)
+	msgs, err := utils.FetchAllMessages(s, i.ChannelID)
 	if err != nil {
 		log.Println("failed to fetch messages:", err)
 		return
@@ -496,7 +493,7 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 	channelName := ch.Name
 
-	embeds, err := buildTimelineEmbeds(s, IMAGE_DUMP_ID, msgs)
+	embeds, err := utils.BuildTimelineEmbeds(s, IMAGE_DUMP_ID, msgs)
 	if err != nil {
 		log.Println(err)
 		return
@@ -531,161 +528,4 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	delete(ticketOwner, i.ChannelID)
 
-}
-
-// util functions ------------------------------------------------------------------------------------------------------------------------
-
-func sanitize(name string) string {
-	name = strings.ToLower(name)
-	re := regexp.MustCompile(`[^a-z0-9-]`)
-	return re.ReplaceAllString(name, "")
-}
-
-func canClaim(i *discordgo.InteractionCreate, supportRoleID string) bool {
-	if i.Member == nil {
-		return false
-	}
-
-	// 1 Admins can always claim
-	if i.Member.Permissions&discordgo.PermissionAdministrator != 0 {
-		return true
-	}
-
-	// 2 Members with support role can claim
-	for _, roleID := range i.Member.Roles {
-		if roleID == supportRoleID {
-			return true
-		}
-	}
-
-	return false
-}
-
-func fetchAllMessages(s *discordgo.Session, channelID string) ([]*discordgo.Message, error) {
-	var all []*discordgo.Message
-	var beforeID string
-
-	for {
-		msgs, err := s.ChannelMessages(channelID, 100, beforeID, "", "")
-		if err != nil {
-			return nil, err
-		}
-		if len(msgs) == 0 {
-			break
-		}
-		all = append(all, msgs...)
-		beforeID = msgs[len(msgs)-1].ID
-	}
-
-	// reverse to oldest → newest
-	for i, j := 0, len(all)-1; i < j; i, j = i+1, j-1 {
-		all[i], all[j] = all[j], all[i]
-	}
-
-	return all, nil
-}
-
-func buildTimelineEmbeds(s *discordgo.Session, mediaChannelID string, msgs []*discordgo.Message) ([]*discordgo.MessageEmbed, error) {
-
-	ist, _ := time.LoadLocation("Asia/Kolkata")
-	var timeline []*discordgo.MessageEmbed
-
-	for _, m := range msgs {
-		if m.Author.Bot {
-			continue
-		}
-
-		t := m.Timestamp.In(ist)
-		timeStr := t.Format("2006-01-02 15:04")
-
-		footer := &discordgo.MessageEmbedFooter{
-			Text: fmt.Sprintf("%s • %s", m.Author.Username, timeStr),
-		}
-
-		// 🔹 TEXT EMBED (if any)
-		if strings.TrimSpace(m.Content) != "" {
-			timeline = append(timeline, &discordgo.MessageEmbed{
-				Description: m.Content,
-				Color:       0x5865F2,
-				Footer:      footer,
-				Timestamp:   m.Timestamp.Format(time.RFC3339),
-			})
-		}
-
-		// 🔹 ATTACHMENTS → reupload → embed
-		for _, a := range m.Attachments {
-			data, err := downloadFile(a.URL)
-			if err != nil {
-				continue
-			}
-
-			newURL, err := reuploadFile(
-				s,
-				mediaChannelID, // 👈 upload to STORAGE, not transcript
-				a.Filename,
-				a.ContentType,
-				data,
-			)
-
-			data = nil
-
-			if err != nil {
-				continue
-			}
-
-			em := &discordgo.MessageEmbed{
-				Footer:    footer,
-				Timestamp: m.Timestamp.Format(time.RFC3339),
-				Color:     0xFAA61A,
-			}
-
-			if strings.HasPrefix(a.ContentType, "image/") {
-				em.Title = "🖼️ Image"
-				em.Image = &discordgo.MessageEmbedImage{
-					URL: newURL,
-				}
-			} else {
-				em.Title = "📎 Attachment"
-				em.Description = fmt.Sprintf("[%s](%s)", a.Filename, newURL)
-			}
-
-			timeline = append(timeline, em)
-		}
-	}
-
-	return timeline, nil
-}
-
-func downloadFile(url string) ([]byte, error) {
-	resp, err := http.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
-}
-
-func reuploadFile(
-	s *discordgo.Session,
-	channelID, filename, contentType string,
-	data []byte,
-) (string, error) {
-
-	msg, err := s.ChannelMessageSendComplex(
-		channelID,
-		&discordgo.MessageSend{
-			Files: []*discordgo.File{
-				{
-					Name:        filename,
-					ContentType: contentType,
-					Reader:      bytes.NewReader(data),
-				},
-			},
-		},
-	)
-	if err != nil {
-		return "", err
-	}
-
-	return msg.Attachments[0].URL, nil
 }
