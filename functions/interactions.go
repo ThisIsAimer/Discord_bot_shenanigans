@@ -19,13 +19,13 @@ func itoa(i int) string {
 
 var commands = []*discordgo.ApplicationCommand{
 	{
-		Name:                     "ping",
-		Description:              "Check bot latency",
-		DefaultMemberPermissions: ptr(int64(discordgo.PermissionAdministrator)),
+		Name:        "ping",
+		Description: "Check bot latency",
 	},
 	{
-		Name:        "ticket",
-		Description: "Create a support ticket",
+		Name:                     "ticket",
+		Description:              "Create a support ticket",
+		DefaultMemberPermissions: ptr(int64(discordgo.PermissionAdministrator)),
 	},
 	{
 		Name:        "search",
@@ -42,7 +42,7 @@ var commands = []*discordgo.ApplicationCommand{
 	{
 		Name:                     "moveall",
 		Description:              "Move users from one VC to another",
-		DefaultMemberPermissions: ptr(int64(discordgo.PermissionVoiceMoveMembers)),
+		DefaultMemberPermissions: ptr(int64(discordgo.PermissionAdministrator)),
 		Options: []*discordgo.ApplicationCommandOption{
 			{
 				Name:         "from",
