@@ -53,7 +53,7 @@ func CanRunTrash(s *discordgo.Session, i *discordgo.InteractionCreate, amount in
 		return false
 	}
 
-	if ch.Type != discordgo.ChannelTypeGuildVoice {
+	if ch.Type != discordgo.ChannelTypeGuildVoice && !admin {
 		utils.NoPerm(
 			s,
 			i,
