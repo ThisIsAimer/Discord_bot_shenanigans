@@ -1,8 +1,11 @@
 package functions
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +18,7 @@ import (
 var TICKET_ADMIN_ROLE_ID string
 var TICKET_ROLE_ID string
 var LOG_CHANNEL_ID string
+var IMAGE_DUMP_ID string
 var CATAGORY_ID string
 
 var ticket_number = 1
@@ -482,8 +486,6 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	embed := buildTranscriptEmbed(msgs)
-
 	ch, err := s.State.Channel(i.ChannelID)
 	if err != nil {
 		ch, err = s.Channel(i.ChannelID) // fallback if not cached
@@ -492,19 +494,33 @@ func ticketConfirmDelete(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			return
 		}
 	}
-
 	channelName := ch.Name
 
-	_, err = s.ChannelMessageSendComplex(
+	embeds, err := buildTimelineEmbeds(s, IMAGE_DUMP_ID, msgs)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	// header message
+	s.ChannelMessageSend(
 		LOG_CHANNEL_ID,
-		&discordgo.MessageSend{
-			Content: fmt.Sprintf("📄 **Transcript for <#%s>**", channelName),
-			Embeds:  []*discordgo.MessageEmbed{embed},
-		},
+		fmt.Sprintf("📄 **Transcript for <#%s>**", channelName),
 	)
 
-	if err != nil {
-		log.Println("failed to send transcript embed:", err)
+	// send embeds in rows
+	for i := 0; i < len(embeds); i += 10 {
+		end := i + 10
+		if end > len(embeds) {
+			end = len(embeds)
+		}
+
+		s.ChannelMessageSendComplex(
+			LOG_CHANNEL_ID,
+			&discordgo.MessageSend{
+				Embeds: embeds[i:end],
+			},
+		)
 	}
 
 	// ✅ Delete channel
@@ -569,14 +585,10 @@ func fetchAllMessages(s *discordgo.Session, channelID string) ([]*discordgo.Mess
 	return all, nil
 }
 
-func buildTranscriptEmbed(msgs []*discordgo.Message) *discordgo.MessageEmbed {
-	ist, err := time.LoadLocation("Asia/Kolkata")
-	if err != nil {
-		ist = time.FixedZone("IST", 5*60*60+30*60)
-	}
+func buildTimelineEmbeds(s *discordgo.Session, mediaChannelID string, msgs []*discordgo.Message) ([]*discordgo.MessageEmbed, error) {
 
-	var desc strings.Builder
-	var firstImage string
+	ist, _ := time.LoadLocation("Asia/Kolkata")
+	var timeline []*discordgo.MessageEmbed
 
 	for _, m := range msgs {
 		if m.Author.Bot {
@@ -586,55 +598,94 @@ func buildTranscriptEmbed(msgs []*discordgo.Message) *discordgo.MessageEmbed {
 		t := m.Timestamp.In(ist)
 		timeStr := t.Format("2006-01-02 15:04")
 
-		// message header
-		desc.WriteString(fmt.Sprintf(
-			"### %s — %s\n",
-			m.Author.Username,
-			timeStr,
-		))
-
-		// message text (in order)
-		if m.Content != "" {
-			desc.WriteString(m.Content + "\n")
+		footer := &discordgo.MessageEmbedFooter{
+			Text: fmt.Sprintf("%s • %s", m.Author.Username, timeStr),
 		}
 
-		// attachments immediately after message
+		// 🔹 TEXT EMBED (if any)
+		if strings.TrimSpace(m.Content) != "" {
+			timeline = append(timeline, &discordgo.MessageEmbed{
+				Description: m.Content,
+				Color:       0x5865F2,
+				Footer:      footer,
+				Timestamp:   m.Timestamp.Format(time.RFC3339),
+			})
+		}
+
+		// 🔹 ATTACHMENTS → reupload → embed
 		for _, a := range m.Attachments {
-			desc.WriteString(fmt.Sprintf(
-				"📎 **Attachment:** [%s](%s)\n",
-				a.Filename,
-				a.URL,
-			))
-
-			// capture first image for embed preview
-			if firstImage == "" &&
-				a.ContentType != "" &&
-				strings.HasPrefix(a.ContentType, "image/") {
-				firstImage = a.URL
+			data, err := downloadFile(a.URL)
+			if err != nil {
+				continue
 			}
-		}
 
-		desc.WriteString("\n---\n\n")
+			newURL, err := reuploadFile(
+				s,
+				mediaChannelID, // 👈 upload to STORAGE, not transcript
+				a.Filename,
+				a.ContentType,
+				data,
+			)
 
-		// hard stop before Discord limit
-		if desc.Len() >= 3900 {
-			desc.WriteString("⚠️ Transcript truncated due to Discord embed limits.")
-			break
+			data = nil
+
+			if err != nil {
+				continue
+			}
+
+			em := &discordgo.MessageEmbed{
+				Footer:    footer,
+				Timestamp: m.Timestamp.Format(time.RFC3339),
+				Color:     0xFAA61A,
+			}
+
+			if strings.HasPrefix(a.ContentType, "image/") {
+				em.Title = "🖼️ Image"
+				em.Image = &discordgo.MessageEmbedImage{
+					URL: newURL,
+				}
+			} else {
+				em.Title = "📎 Attachment"
+				em.Description = fmt.Sprintf("[%s](%s)", a.Filename, newURL)
+			}
+
+			timeline = append(timeline, em)
 		}
 	}
 
-	embed := &discordgo.MessageEmbed{
-		Title:       "📄 Ticket Transcript",
-		Description: desc.String(),
-		Color:       0x5865F2,
-		Timestamp:   time.Now().Format(time.RFC3339),
+	return timeline, nil
+}
+
+func downloadFile(url string) ([]byte, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
+}
+
+func reuploadFile(
+	s *discordgo.Session,
+	channelID, filename, contentType string,
+	data []byte,
+) (string, error) {
+
+	msg, err := s.ChannelMessageSendComplex(
+		channelID,
+		&discordgo.MessageSend{
+			Files: []*discordgo.File{
+				{
+					Name:        filename,
+					ContentType: contentType,
+					Reader:      bytes.NewReader(data),
+				},
+			},
+		},
+	)
+	if err != nil {
+		return "", err
 	}
 
-	if firstImage != "" {
-		embed.Image = &discordgo.MessageEmbedImage{
-			URL: firstImage,
-		}
-	}
-
-	return embed
+	return msg.Attachments[0].URL, nil
 }

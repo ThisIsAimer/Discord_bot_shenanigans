@@ -24,6 +24,7 @@ func main() {
 	functions.TICKET_ROLE_ID = os.Getenv("TICKET_ROLE_ID")
 	functions.LOG_CHANNEL_ID = os.Getenv("LOG_CHANNEL_ID")
 	functions.CATAGORY_ID = os.Getenv("CATAGORY_ID")
+	functions.IMAGE_DUMP_ID = os.Getenv("IMAGE_DUMP_ID")
 
 	log.SetOutput(os.Stdout)
 
@@ -39,7 +40,10 @@ func main() {
 	}
 
 	// Intents (voice states required)
-	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildVoiceStates
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent
+	//dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsMessageContent | discordgo.IntentsGuildVoiceStates
+
+	// dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages |  discordgo.IntentsMessageContent |  iscordgo.IntentsGuildVoiceStates
 
 	dg.AddHandler(functions.OnGuildCreate)
 	dg.AddHandler(functions.OnInteractionCreate)
