@@ -37,6 +37,8 @@ var commands = []*discordgo.ApplicationCommand{
 				Description: "Number of messages to delete",
 				Type:        discordgo.ApplicationCommandOptionInteger,
 				Required:    true,
+				MinValue:    ptr(1.),
+				MaxValue:    20000,
 			},
 		},
 	},
